@@ -1,79 +1,96 @@
 from socket import AF_INET, socket, SOCK_STREAM
 from threading import Thread
 import tkinter as tk
+from datetime import datetime
 
-HOST = "127.0.0.1"
-PORT = 33000
-BUFSIZ = 1024
-ADDR = (HOST, PORT)
+class ChatClient:
+    def __init__(self, host, port):
+        self.HOST = host
+        self.PORT = port
+        self.BUFSIZ = 1024
+        self.ADDR = (self.HOST, self.PORT)
 
-chat_window = None
-my_msg = None
+        self.chat_window = None
+        self.my_msg = None
+        self.name_dialog = None  # Added name_dialog attribute
+        self.name_entry = None  # Added name_entry attribute
 
-def submit_name():
-    name = name_entry.get()
-    client_socket.send(bytes(name, "utf8"))
-    if name.strip() != "":
-        print("name exists")
-        name_dialog.destroy()
-        create_chat_window(name)
+        self.client_socket = socket(AF_INET, SOCK_STREAM)
+        self.client_socket.connect(self.ADDR)
 
-def create_chat_window(name):
-    global chat_window, my_msg
-    chat_window = tk.Tk()
-    my_msg = tk.StringVar()
-    scrollbar = tk.Scrollbar(chat_window)
-    message_list = tk.Listbox(chat_window, width=50, height=10, yscrollcommand=scrollbar.set)
-    chat_label = tk.Label(chat_window, text="\nWelcome, " + name + "!")
-    chat_window.title("The chat of "+name)
-    chat_label.pack()
-    message_list.pack()
-    message_entry = tk.Entry(chat_window, width=50, textvariable=my_msg)
-    message_entry.pack()
+    def submit_name(self):
+        name = self.name_entry.get()
+        self.client_socket.send(bytes(name, "utf8"))
+        if name.strip() != "":
+            self.name_dialog.destroy()
+            self.create_chat_window(name)
 
-    send_button = tk.Button(chat_window, text="Send", command=lambda: send_message(my_msg))
-    send_button.pack()
-    message_entry.bind("<Return>", lambda event: send_message(my_msg))
-    receive_thread = Thread(target=receive, args=(message_list,))
-    receive_thread.start()
-    chat_window.mainloop()
+    def create_chat_window(self, name):
+        self.chat_window = tk.Tk()
+        self.my_msg = tk.StringVar()
+        scrollbar = tk.Scrollbar(self.chat_window)
+        message_list = tk.Listbox(self.chat_window, width=50, height=10, yscrollcommand=scrollbar.set)
+        chat_label = tk.Label(self.chat_window, text="\nWelcome, " + name + "!")
+        self.chat_window.title("The chat of " + name)
+        chat_label.pack()
+        message_list.pack()
+        message_entry = tk.Entry(self.chat_window, width=50, textvariable=self.my_msg)
+        message_entry.pack()
 
-def send_message(msg_var):
-    global chat_window
-    msg = msg_var.get()
-    msg_var.set("")  # Clears input field.
-    client_socket.send(bytes(msg, "utf8"))
-    if msg == "{quit}":
-        client_socket.close()
-        chat_window.quit()
+        send_button = tk.Button(self.chat_window, text="Send", command=lambda: self.send_message(self.my_msg))
+        send_button.pack()
+        message_entry.bind("<Return>", lambda event: self.send_message(self.my_msg))
+        self.chat_window.protocol("WM_DELETE_WINDOW", self.on_closing)
 
-def receive(message_list):
-    """Handles receiving of messages."""
-    while True:
+        receive_thread = Thread(target=self.receive, args=(message_list,))
+        receive_thread.start()
+        self.chat_window.mainloop()
+
+    def send_message(self, msg_var):
+        msg = msg_var.get()
+        msg_var.set("")  # Clears input field.
+        if msg == "{quit}":
+            try:
+                self.client_socket.close()
+                self.chat_window.quit()
+            except OSError:
+                print("The connection has already been closed.")
         try:
-            msg = client_socket.recv(BUFSIZ).decode("utf8")
-            # Split the received message into separate lines
-            lines = msg.split("\n")
-            for line in lines:
-                if line.strip() != "":
-                    message_list.insert(tk.END, line)
-        except OSError:  # Possibly client has left the chat.
-            break
+            self.client_socket.send(bytes(msg, "utf8"))
+        except OSError:
+            print("Failed to send the message.")
 
-client_socket = socket(AF_INET, SOCK_STREAM)
-client_socket.connect(ADDR)
 
-# Create the dialog window
-name_dialog = tk.Tk()
-name_dialog.title("Enter Your Name")
 
-name_label = tk.Label(name_dialog, text="Enter your name:")
-name_label.pack()
 
-name_entry = tk.Entry(name_dialog, width=50)
-name_entry.pack()
+    def on_closing(self, event=None):
+        print("on_closing")
+        self.my_msg.set("{quit}")
+        self.send_message(self.my_msg)
+    def receive(self, message_list):
+        while True:
+            try:
+                msg = self.client_socket.recv(self.BUFSIZ).decode("utf8")
+                lines = msg.split("\n")
+                for line in lines:
+                    if line.strip() != "":
+                        message_list.insert(tk.END, line)
+            except OSError:
+                break
 
-submit_button = tk.Button(name_dialog, text="Submit", command=submit_name)
-submit_button.pack()
-name_entry.bind("<Return>", lambda event: submit_name())
-name_dialog.mainloop()
+if __name__ == "__main__":
+    client = ChatClient("127.0.0.1", 33000)
+
+    client.name_dialog = tk.Tk()  # Updated variable name
+    client.name_dialog.title("Enter Your Name")
+
+    name_label = tk.Label(client.name_dialog, text="Enter your name:")
+    name_label.pack()
+
+    client.name_entry = tk.Entry(client.name_dialog, width=50)  # Updated variable name
+    client.name_entry.pack()
+
+    submit_button = tk.Button(client.name_dialog, text="Submit", command=client.submit_name)
+    submit_button.pack()
+    client.name_entry.bind("<Return>", lambda event: client.submit_name())
+    client.name_dialog.mainloop()

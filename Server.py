@@ -1,3 +1,4 @@
+from datetime import datetime
 from socket import *
 from threading import Thread
 
@@ -6,41 +7,63 @@ PORT = 33000
 BUFSIZ = 1024
 ADDR = (HOST, PORT)
 
+import traceback
+
+
 def accept_incoming_connections(server_socket, addresses, clients):
     """Sets up handling for incoming clients."""
-    while True:
-        client, client_address = server_socket.accept()
-        print("%s:%s has connected." % client_address)
-        client.send(bytes("Greetings from the cave!\n", "utf8"))
-        addresses[client] = client_address
-        Thread(target=handle_client, args=(client,clients)).start()
+    while not server_socket._closed:
+        try:
+            client, client_address = server_socket.accept()
+            current_time = datetime.now().strftime("%H:%M")
+            client.send(bytes("["+current_time+"] Greetings from the cave!\n", "utf8"))
+            addresses[client] = client_address
+            Thread(target=handle_client, args=(client, clients)).start()
+        except OSError as e:
+            if server_socket._closed:
+                break
+            else:
+                print("Error accepting incoming connection:", e)
+                traceback.print_exc()
+                continue
+    server_socket.close()
 
 
-def handle_client(client, clients):  # Takes client socket as argument.
+
+def handle_client(client, clients):
     """Handles a single client connection."""
+    current_time = datetime.now().strftime("%H:%M")
     name = client.recv(BUFSIZ).decode("utf8")
-    welcome = 'Welcome %s! If you ever want to quit, type {quit} to exit.' % name
+    welcome = f"Welcome {name}! If you ever want to quit, type {{quit}} to exit."
     client.send(bytes(welcome, "utf8"))
-    msg = "%s has joined the chat!" % name
+    msg = f"{name} has joined the chat!"
     broadcast(clients, bytes(msg, "utf8"))
     clients[client] = name
     while True:
-        msg = client.recv(BUFSIZ)
-        if msg != bytes("{quit}", "utf8"):
+        try:
+            msg = client.recv(BUFSIZ)
+            if msg == bytes("{quit}", "utf8"):
+                raise ConnectionResetError("Client requested disconnect.")
+            if not msg:
+                raise ConnectionResetError("Client disconnected unexpectedly.")
             broadcast(clients, msg, name + ": ")
-        else:
-            client.send(bytes("{quit}", "utf8"))
-            client.close()
+        except ConnectionResetError:
             del clients[client]
-            broadcast(clients, bytes("%s has left the chat." % name, "utf8"))
+            client.close()
+            msg = f"{name} has left the chat."
+            broadcast(clients, bytes(msg, "utf8"))
             break
+
 
 
 def broadcast(clients, msg, prefix=""):  # prefix is for name identification.
     """Broadcasts a message to all the clients."""
-
+    current_time = datetime.now().strftime("%H:%M")
     for sock in clients:
-        sock.send(bytes(prefix, "utf8") + msg)
+        #if bytes("{quit}", "utf8") in msg:
+        #    sock.send(bytes(prefix, "utf8") + msg)
+        #else:
+        sock.send(bytes("["+current_time+"]"+prefix, "utf8") + msg)
 
 
 def create_server_socket():
