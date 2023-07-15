@@ -21,11 +21,11 @@ def submit_name():
 def create_chat_window(name):
     global chat_window, my_msg
     chat_window = tk.Tk()
-    chat_window.title("Chat Window")
     my_msg = tk.StringVar()
     scrollbar = tk.Scrollbar(chat_window)
     message_list = tk.Listbox(chat_window, width=50, height=10, yscrollcommand=scrollbar.set)
-    chat_label = tk.Label(chat_window, text="Welcome, " + name + "!")
+    chat_label = tk.Label(chat_window, text="\nWelcome, " + name + "!")
+    chat_window.title("The chat of "+name)
     chat_label.pack()
     message_list.pack()
     message_entry = tk.Entry(chat_window, width=50, textvariable=my_msg)
@@ -33,6 +33,7 @@ def create_chat_window(name):
 
     send_button = tk.Button(chat_window, text="Send", command=lambda: send_message(my_msg))
     send_button.pack()
+    message_entry.bind("<Return>", lambda event: send_message(my_msg))
     receive_thread = Thread(target=receive, args=(message_list,))
     receive_thread.start()
     chat_window.mainloop()
@@ -51,7 +52,11 @@ def receive(message_list):
     while True:
         try:
             msg = client_socket.recv(BUFSIZ).decode("utf8")
-            message_list.insert(tk.END, msg)
+            # Split the received message into separate lines
+            lines = msg.split("\n")
+            for line in lines:
+                if line.strip() != "":
+                    message_list.insert(tk.END, line)
         except OSError:  # Possibly client has left the chat.
             break
 
@@ -70,5 +75,5 @@ name_entry.pack()
 
 submit_button = tk.Button(name_dialog, text="Submit", command=submit_name)
 submit_button.pack()
-
+name_entry.bind("<Return>", lambda event: submit_name())
 name_dialog.mainloop()

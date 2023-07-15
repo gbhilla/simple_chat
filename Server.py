@@ -11,7 +11,7 @@ def accept_incoming_connections(server_socket, addresses, clients):
     while True:
         client, client_address = server_socket.accept()
         print("%s:%s has connected." % client_address)
-        client.send(bytes("Greetings from the cave! Now type your name and press enter!", "utf8"))
+        client.send(bytes("Greetings from the cave!\n", "utf8"))
         addresses[client] = client_address
         Thread(target=handle_client, args=(client,clients)).start()
 
