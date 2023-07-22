@@ -1,96 +1,81 @@
-from socket import AF_INET, socket, SOCK_STREAM
-from threading import Thread
+# client.py
+import socket
+import threading
 import tkinter as tk
-from datetime import datetime
+from tkinter import simpledialog, filedialog
+from PIL import Image, ImageTk
 
-class ChatClient:
-    def __init__(self, host, port):
-        self.HOST = host
-        self.PORT = port
-        self.BUFSIZ = 1024
-        self.ADDR = (self.HOST, self.PORT)
-
-        self.chat_window = None
-        self.my_msg = None
-        self.name_dialog = None  # Added name_dialog attribute
-        self.name_entry = None  # Added name_entry attribute
-
-        self.client_socket = socket(AF_INET, SOCK_STREAM)
-        self.client_socket.connect(self.ADDR)
-
-    def submit_name(self):
-        name = self.name_entry.get()
-        self.client_socket.send(bytes(name, "utf8"))
-        if name.strip() != "":
-            self.name_dialog.destroy()
-            self.create_chat_window(name)
-
-    def create_chat_window(self, name):
-        self.chat_window = tk.Tk()
-        self.my_msg = tk.StringVar()
-        scrollbar = tk.Scrollbar(self.chat_window)
-        message_list = tk.Listbox(self.chat_window, width=50, height=10, yscrollcommand=scrollbar.set)
-        chat_label = tk.Label(self.chat_window, text="\nWelcome, " + name + "!")
-        self.chat_window.title("The chat of " + name)
-        chat_label.pack()
-        message_list.pack()
-        message_entry = tk.Entry(self.chat_window, width=50, textvariable=self.my_msg)
-        message_entry.pack()
-
-        send_button = tk.Button(self.chat_window, text="Send", command=lambda: self.send_message(self.my_msg))
-        send_button.pack()
-        message_entry.bind("<Return>", lambda event: self.send_message(self.my_msg))
-        self.chat_window.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-        receive_thread = Thread(target=self.receive, args=(message_list,))
-        receive_thread.start()
-        self.chat_window.mainloop()
-
-    def send_message(self, msg_var):
-        msg = msg_var.get()
-        msg_var.set("")  # Clears input field.
-        if msg == "{quit}":
-            try:
-                self.client_socket.close()
-                self.chat_window.quit()
-            except OSError:
-                print("The connection has already been closed.")
+def receive():
+    while True:
         try:
-            self.client_socket.send(bytes(msg, "utf8"))
+            message = client_socket.recv(1024).decode('utf-8')
+            if message.startswith("[Image]"):
+                image_name = message.split()[1]
+                image_data = client_socket.recv(1024)
+                with open(f"received_{image_name}", 'wb') as image_file:
+                    image_file.write(image_data)
+                display_image(f"received_{image_name}")
+            else:
+                text_area.config(state=tk.NORMAL)  # Enable text_area for editing
+                text_area.insert('end', message + '\n')  # Display the received message
+                text_area.see('end')
+                text_area.config(state=tk.DISABLED)  # Disable text_area again
         except OSError:
-            print("Failed to send the message.")
+            break
+    client_socket.close()
+    root.quit()
 
+def display_image(image_path):
+    image = Image.open(image_path)
+    image.thumbnail((100, 100))
+    photo = ImageTk.PhotoImage(image)
+    label = tk.Label(root, image=photo)
+    label.image = photo
+    text_area.window_create('end', window=label)
+    text_area.insert('end', '\n')
+    text_area.see('end')
 
+def send(event=None):
+    message = my_msg.get()
+    my_msg.set("")
+    print(f"Sending message: {message}")  # Add this line
+    client_socket.send(message.encode('utf-8'))
+    if message == "/sendimage":
+        file_path = filedialog.askopenfilename()
+        if file_path:
+            client_socket.send(f"/sendimage {file_path}".encode('utf-8'))
 
-
-    def on_closing(self, event=None):
-        print("on_closing")
-        self.my_msg.set("{quit}")
-        self.send_message(self.my_msg)
-    def receive(self, message_list):
-        while True:
-            try:
-                msg = self.client_socket.recv(self.BUFSIZ).decode("utf8")
-                lines = msg.split("\n")
-                for line in lines:
-                    if line.strip() != "":
-                        message_list.insert(tk.END, line)
-            except OSError:
-                break
+def on_closing(event=None):
+    my_msg.set("/exit")
+    send()
 
 if __name__ == "__main__":
-    client = ChatClient("127.0.0.1", 33000)
+    host = '127.0.0.1'
+    port = 8080
 
-    client.name_dialog = tk.Tk()  # Updated variable name
-    client.name_dialog.title("Enter Your Name")
+    client_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    client_socket.connect((host, port))
 
-    name_label = tk.Label(client.name_dialog, text="Enter your name:")
-    name_label.pack()
+    nickname = simpledialog.askstring("Nickname", "Enter your nickname:")
+    client_socket.send(nickname.encode('utf-8'))
 
-    client.name_entry = tk.Entry(client.name_dialog, width=50)  # Updated variable name
-    client.name_entry.pack()
+    root = tk.Tk()
+    root.title("Chat")
+    text_area = tk.Text(root, wrap='word', width=500, height=400)
+    text_area.pack(expand='yes', fill='both')
+    text_area.config(state=tk.DISABLED)
+    scrollbar = tk.Scrollbar(text_area)
+    scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
 
-    submit_button = tk.Button(client.name_dialog, text="Submit", command=client.submit_name)
-    submit_button.pack()
-    client.name_entry.bind("<Return>", lambda event: client.submit_name())
-    client.name_dialog.mainloop()
+    my_msg = tk.StringVar()
+    entry_field = tk.Entry(root, textvariable=my_msg)
+    entry_field.bind("<Return>", send)
+    entry_field.bind("<KP_Enter>", send)  # For Enter key on numeric keypad
+    entry_field.pack(fill='both')
+
+    root.protocol("WM_DELETE_WINDOW", on_closing)
+
+    receive_thread = threading.Thread(target=receive)
+    receive_thread.start()
+    root.geometry("500x500")
+    root.mainloop()

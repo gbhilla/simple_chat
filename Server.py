@@ -1,96 +1,62 @@
-from datetime import datetime
-from socket import *
-from threading import Thread
+# server.py
+import socket
+import threading
+import time
 
-HOST = '0.0.0.0'
-PORT = 33000
-BUFSIZ = 1024
-ADDR = (HOST, PORT)
+clients = {}
+addresses = {}
 
-import traceback
+def handle_client(client_socket, addr):
+    nickname = client_socket.recv(1024).decode('utf-8')
+    clients[client_socket] = nickname
+    addresses[client_socket] = addr
+    print(f"[{time.strftime('%H:%M', time.localtime())}] {nickname} connected from {addr}")
+    broadcast_message_to_all(f"[{time.strftime('%H:%M', time.localtime())}] {nickname} connected")
 
-
-def accept_incoming_connections(server_socket, addresses, clients):
-    """Sets up handling for incoming clients."""
-    while not server_socket._closed:
-        try:
-            client, client_address = server_socket.accept()
-            current_time = datetime.now().strftime("%H:%M")
-            client.send(bytes("["+current_time+"] Greetings from the cave!\n", "utf8"))
-            addresses[client] = client_address
-            Thread(target=handle_client, args=(client, clients)).start()
-        except OSError as e:
-            if server_socket._closed:
-                break
-            else:
-                print("Error accepting incoming connection:", e)
-                traceback.print_exc()
-                continue
-    server_socket.close()
-
-
-
-def handle_client(client, clients):
-    """Handles a single client connection."""
-    current_time = datetime.now().strftime("%H:%M")
-    name = client.recv(BUFSIZ).decode("utf8")
-    welcome = f"Welcome {name}! If you ever want to quit, type {{quit}} to exit."
-    client.send(bytes(welcome, "utf8"))
-    msg = f"{name} has joined the chat!"
-    broadcast(clients, bytes(msg, "utf8"))
-    clients[client] = name
     while True:
         try:
-            msg = client.recv(BUFSIZ)
-            if msg == bytes("{quit}", "utf8"):
-                raise ConnectionResetError("Client requested disconnect.")
-            if not msg:
-                raise ConnectionResetError("Client disconnected unexpectedly.")
-            broadcast(clients, msg, name + ": ")
-        except ConnectionResetError:
-            del clients[client]
-            client.close()
-            msg = f"{name} has left the chat."
-            broadcast(clients, bytes(msg, "utf8"))
+            message = client_socket.recv(1024).decode('utf-8')
+            print(f"Received from {nickname}: {message}")  # Add this line
+            if message.startswith('/sendimage'):
+                send_image(client_socket, message.split()[1])
+            else:
+                broadcast_message_to_all(f"[{time.strftime('%H:%M', time.localtime())}] {nickname}: {message}")
+        except:
+            remove_client(client_socket)
             break
 
-
-
-def broadcast(clients, msg, prefix=""):  # prefix is for name identification.
-    """Broadcasts a message to all the clients."""
-    current_time = datetime.now().strftime("%H:%M")
-    for sock in clients:
-        #if bytes("{quit}", "utf8") in msg:
-        #    sock.send(bytes(prefix, "utf8") + msg)
-        #else:
-        sock.send(bytes("["+current_time+"]"+prefix, "utf8") + msg)
-
-
-def create_server_socket():
-    """
-    Thios function returns serevr socket
-    :return: server_socket
-    """
+def remove_client(client_socket):
+    nickname=clients[client_socket]
+    del clients[client_socket]
+    del addresses[client_socket]
+    client_socket.close()
+    broadcast_message_to_all(f"[{time.strftime('%H:%M', time.localtime())}] {nickname} exited")
+def broadcast_message_to_all(message):
+    for client_socket in clients:
+        client_socket.send(message.encode('utf-8'))
+def send_image(client_socket, image_name):
     try:
-        server_socket = socket(AF_INET, SOCK_STREAM)
-        server_socket.bind(ADDR)
-    except Exception as err:
-        print(err)
-        exit(999)
-    return server_socket
+        with open(image_name, 'rb') as image_file:
+            image_data = image_file.read()
+            for client_socket in clients:
+                client_socket.send(f"[Image] {image_name}".encode('utf-8'))
+                client_socket.send(image_data)
+    except FileNotFoundError:
+        client_socket.send("[Error] Image not found".encode('utf-8'))
 
+def start_server():
+    host = '127.0.0.1'
+    port = 8080
 
-def main():
-    server_socket = create_server_socket()
-    clients = {}
-    addresses = {}
+    server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server_socket.bind((host, port))
     server_socket.listen(5)
-    print("Waiting for connection...")
-    ACCEPT_THREAD = Thread(target=accept_incoming_connections,args=(server_socket, addresses, clients))
-    ACCEPT_THREAD.start()
-    ACCEPT_THREAD.join()
-    server_socket.close()
+    print("Server listening on {}:{}".format(host, port))
 
+    while True:
+        client_socket, addr = server_socket.accept()
+        client_socket.send("Enter your nickname:".encode('utf-8'))
+        threading.Thread(target=handle_client, args=(client_socket, addr)).start()
 
 if __name__ == "__main__":
-    main()
+    start_server()
